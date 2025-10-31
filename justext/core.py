@@ -13,11 +13,16 @@ import re
 import lxml.html
 import lxml.sax
 
+try:
+    from functools import lru_cache
+except ImportError:
+    from backports.functools_lru_cache import lru_cache
+
 from lxml.html.clean import Cleaner
 from xml.sax.handler import ContentHandler
 from .paragraph import Paragraph
 from ._compat import unicode, ignored
-from .utils import is_blank, get_stoplist, get_stoplists
+from .utils import is_blank
 
 
 MAX_LINK_DENSITY_DEFAULT = 0.2
@@ -29,15 +34,16 @@ NO_HEADINGS_DEFAULT = False
 # Short and near-good headings within MAX_HEADING_DISTANCE characters before
 # a good paragraph are classified as good unless --no-headings is specified.
 MAX_HEADING_DISTANCE_DEFAULT = 200
-PARAGRAPH_TAGS = [
+PARAGRAPH_TAGS = frozenset({
     'body', 'blockquote', 'caption', 'center', 'col', 'colgroup', 'dd',
     'div', 'dl', 'dt', 'fieldset', 'form', 'legend', 'optgroup', 'option',
     'p', 'pre', 'table', 'td', 'textarea', 'tfoot', 'th', 'thead', 'tr',
     'ul', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-]
+})
 DEFAULT_ENCODING = 'utf8'
 DEFAULT_ENC_ERRORS = 'replace'
 CHARSET_META_TAG_PATTERN = re.compile(br"""<meta[^>]+charset=["']?([^'"/>\s]+)""", re.IGNORECASE)
+GOOD_OR_BAD = {'good', 'bad'}
 
 
 class JustextError(Exception):
@@ -122,6 +128,8 @@ def preprocessor(dom):
     return cleaner.clean_html(dom)
 
 
+# super(...).__init__() breaks Python 2.7 - TypeError: super() argument 1 must be type, not classobj
+# noinspection PyMissingConstructor
 class ParagraphMaker(ContentHandler):
     """
     A class for converting a HTML page represented as a DOM object into a list
@@ -162,7 +170,9 @@ class ParagraphMaker(ContentHandler):
             self._start_new_pragraph()
         else:
             self.br = bool(name == "br")
-            if name == 'a':
+            if self.br:
+                self.paragraph.append_text(' ')
+            elif name == 'a':
                 self.link = True
             self.paragraph.tags_count += 1
 
@@ -223,13 +233,20 @@ class PathInfo(object):
         return self
 
 
+@lru_cache(maxsize=128)  # 100 stoplists
+def define_stoplist(stoplist):
+    "Lower-case all words in stoplist and create frozen set."
+    stoplist = frozenset(w.lower() for w in stoplist)
+    return stoplist
+
+
 def classify_paragraphs(paragraphs, stoplist, length_low=LENGTH_LOW_DEFAULT,
         length_high=LENGTH_HIGH_DEFAULT, stopwords_low=STOPWORDS_LOW_DEFAULT,
         stopwords_high=STOPWORDS_HIGH_DEFAULT, max_link_density=MAX_LINK_DENSITY_DEFAULT,
         no_headings=NO_HEADINGS_DEFAULT):
     "Context-free paragraph classification."
 
-    stoplist = frozenset(w.lower() for w in stoplist)
+    stoplist = define_stoplist(stoplist)
     for paragraph in paragraphs:
         length = len(paragraph)
         stopword_density = paragraph.stopwords_density(stoplist)
@@ -240,7 +257,7 @@ def classify_paragraphs(paragraphs, stoplist, length_low=LENGTH_LOW_DEFAULT,
             paragraph.cf_class = 'bad'
         elif ('\xa9' in paragraph.text) or ('&copy' in paragraph.text):
             paragraph.cf_class = 'bad'
-        elif re.search('^select|\.select', paragraph.dom_path):
+        elif 'select' in paragraph.dom_path:
             paragraph.cf_class = 'bad'
         elif length < length_low:
             if paragraph.chars_count_in_links > 0:
@@ -262,7 +279,7 @@ def _get_neighbour(i, paragraphs, ignore_neargood, inc, boundary):
     while i + inc != boundary:
         i += inc
         c = paragraphs[i].class_type
-        if c in ['good', 'bad']:
+        if c in GOOD_OR_BAD:
             return c
         if c == 'neargood' and not ignore_neargood:
             return c
@@ -292,12 +309,11 @@ def revise_paragraph_classification(paragraphs, max_heading_distance=MAX_HEADING
     Context-sensitive paragraph classification. Assumes that classify_pragraphs
     has already been called.
     """
-    # copy classes
-    for paragraph in paragraphs:
-        paragraph.class_type = paragraph.cf_class
 
     # good headings
     for i, paragraph in enumerate(paragraphs):
+        # copy classes
+        paragraph.class_type = paragraph.cf_class
         if not (paragraph.heading and paragraph.class_type == 'short'):
             continue
         j = i + 1
@@ -316,10 +332,9 @@ def revise_paragraph_classification(paragraphs, max_heading_distance=MAX_HEADING
             continue
         prev_neighbour = get_prev_neighbour(i, paragraphs, ignore_neargood=True)
         next_neighbour = get_next_neighbour(i, paragraphs, ignore_neargood=True)
-        neighbours = set((prev_neighbour, next_neighbour))
-        if neighbours == set(['good']):
+        if prev_neighbour == 'good' and next_neighbour == 'good':
             new_classes[i] = 'good'
-        elif neighbours == set(['bad']):
+        elif prev_neighbour == 'bad' and next_neighbour == 'bad':
             new_classes[i] = 'bad'
         # it must be set(['good', 'bad'])
         elif (prev_neighbour == 'bad' and get_prev_neighbour(i, paragraphs, ignore_neargood=False) == 'neargood') or \

@@ -3,14 +3,14 @@
 from __future__ import absolute_import
 from __future__ import division, print_function, unicode_literals
 
-import re
-import os
-import sys
-import cgi
 import codecs
+import os
+import re
+import sys
 
+from ._compat import escape, PY3, URLError, urllib
 from .core import *
-from ._compat import urllib, URLError
+from .utils import get_stoplist, get_stoplists
 
 
 def usage():
@@ -91,7 +91,7 @@ def output_default(paragraphs, fp=sys.stdout, no_boilerplate=True):
         else:
             tag = 'b'
 
-        print('<%s> %s' % (tag, cgi.escape(paragraph.text)), file=fp)
+        print('<%s> %s' % (tag, escape(paragraph.text, quote=False)), file=fp)
 
 
 def output_detailed(paragraphs, fp=sys.stdout):
@@ -105,7 +105,7 @@ def output_detailed(paragraphs, fp=sys.stdout):
             paragraph.cf_class,
             int(paragraph.heading),
             paragraph.xpath,
-            cgi.escape(paragraph.text)
+            escape(paragraph.text, quote=False)
         )
         print(output, file=fp)
 
@@ -150,7 +150,10 @@ def main():
 
     stream_writer = codecs.lookup('utf8')[-1]
     fp_in = sys.stdin
-    fp_out = stream_writer(sys.stdout)
+    if PY3:
+        fp_out = stream_writer(sys.stdout.buffer)
+    else:
+        fp_out = stream_writer(sys.stdout)
     stoplist = None
     format = 'default'
     no_headings = False
@@ -175,7 +178,7 @@ def main():
                     os.path.basename(sys.argv[0]), VERSION))
                 sys.exit(0)
             elif o == "--list-stoplists":
-                print("\n".join(get_stoplists()))
+                print("\n".join(sorted(get_stoplists())))
                 sys.exit(0)
             elif o == "-o":
                 try:
@@ -202,12 +205,12 @@ def main():
                     elif a in get_stoplists():
                         stoplist = get_stoplist(a)
                     else:
-                        if re.match('^\w*$', a):
+                        if re.match(r'^\w*$', a):
                             # only alphabetical chars, probably misspelled or
                             # unsupported language
                             raise JustextInvalidOptions(
                                 "Unknown stoplist: %s\nAvailable stoplists:\n%s" % (
-                                    a, '\n'.join(get_stoplists())))
+                                    a, '\n'.join(sorted(get_stoplists()))))
                         else:
                             # probably incorrectly specified path
                             raise JustextInvalidOptions("File not found: %s" % a)
@@ -288,7 +291,6 @@ def main():
             except (IOError, URLError) as e:
                 raise JustextInvalidOptions(
                     "Can't open %s for reading: %s" % (args[0], e))
-                sys.exit(1)
 
         html_text = fp_in.read()
         if fp_in is not sys.stdin:

@@ -3,6 +3,20 @@
 Changelog for jusText
 =====================
 
+3.0.2 (2025-02-25)
+------------------
+- *BUG FIX:* Handle urllib imports in Python 2 and 3 correctly `#51 <https://github.com/miso-belica/jusText/pull/51>`_.
+
+3.0.1 (2024-05-09)
+------------------
+- *BUG FIX:* Fix issue with new version of lxml `#48 <https://github.com/miso-belica/jusText/pull/48>`_.
+
+3.0.0 (2021-10-21)
+------------------
+- *INCOMPATIBLE CHANGE:* Dropped support for Python 3.4 and below.
+- *BUG FIX:* Don't join words separated only by ``<br>`` tag.
+- *BUG FIX:* List available stop-lists alphabetically.
+
 2.2.0 (2016-03-06)
 ------------------
 - *INCOMPATIBLE CHANGE:* Stop words are case insensitive.

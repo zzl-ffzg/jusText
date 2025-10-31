@@ -8,6 +8,9 @@ import re
 from .utils import normalize_whitespace
 
 
+HEADINGS_PATTERN = re.compile(r"\bh\d\b")
+
+
 class Paragraph(object):
     """Object representing one block of text in HTML."""
     def __init__(self, path):
@@ -16,10 +19,11 @@ class Paragraph(object):
         self.text_nodes = []
         self.chars_count_in_links = 0
         self.tags_count = 0
+        self.class_type = ""  # short | neargood | good | bad
 
     @property
     def is_heading(self):
-        return bool(re.search(r"\bh\d\b", self.dom_path))
+        return bool(HEADINGS_PATTERN.search(self.dom_path))
 
     @property
     def is_boilerplate(self):
@@ -46,20 +50,13 @@ class Paragraph(object):
         return text
 
     def stopwords_count(self, stopwords):
-        count = 0
-
-        for word in self.text.split():
-            if word.lower() in stopwords:
-                count += 1
-
-        return count
+        return sum(word.lower() in stopwords for word in self.text.split())
 
     def stopwords_density(self, stopwords):
-        words_count = self.words_count
-        if words_count == 0:
+        if self.words_count == 0:
             return 0
 
-        return self.stopwords_count(stopwords) / words_count
+        return self.stopwords_count(stopwords) / self.words_count
 
     def links_density(self):
         text_length = len(self.text)
